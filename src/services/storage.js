@@ -58,11 +58,13 @@ export function normalizeSavedRecord(raw, savedAtMs) {
     };
 }
 
-// 整表归一：非法与重复 seq 计入 skipped（保留首次出现），输出按 seq 降序。
-export function normalizeSavedRecords(items, savedAtMs) {
+// 整表归一：非法记录计入 skipped；默认重复 seq 只保留首次出现。
+// allowDuplicateSeq 用于导入合并场景：重复 seq 全部保留，交由调用方重新编号。
+export function normalizeSavedRecords(items, savedAtMs, options) {
     if (!Array.isArray(items)) {
         return { records: [], skipped: 0 };
     }
+    var allowDuplicateSeq = !!(options && options.allowDuplicateSeq === true);
     var records = [];
     var skipped = 0;
     var seen = Object.create(null);
@@ -72,7 +74,7 @@ export function normalizeSavedRecords(items, savedAtMs) {
             skipped += 1;
             continue;
         }
-        if (seen[record.seq]) {
+        if (!allowDuplicateSeq && seen[record.seq]) {
             skipped += 1;
             continue;
         }
@@ -165,9 +167,10 @@ export function probeStorage() {
     }
 }
 
-export function readRawText() {
+export function readRawText(key) {
     try {
-        var text = window.localStorage.getItem(STORAGE_CONFIG.key);
+        var storageKey = typeof key === 'string' && key !== '' ? key : STORAGE_CONFIG.key;
+        var text = window.localStorage.getItem(storageKey);
         if (text === null || text === '') {
             return { ok: true, text: null, reason: 'none' };
         }
@@ -193,29 +196,30 @@ export function writeRawText(text) {
     }
 }
 
+export function removeStorageKey(key) {
+    try {
+        window.localStorage.removeItem(key);
+        return true;
+    } catch (err) {
+        return false;
+    }
+}
+
 // 启动恢复：探测 → 读取 → 解析 → 归一。零写入。
 export function restoreSavedDataset() {
-    function outcome(status, restored, skipped, notice, records) {
+    function outcome(status, restored, skipped, notice, records, legacyKey) {
         return {
             status: status,
             restored: restored,
             skipped: skipped,
             notice: notice,
-            records: records || []
+            records: records || [],
+            legacyKey: legacyKey || ''
         };
     }
-    try {
-        if (probeStorage() === 'unavailable') {
-            return outcome('unavailable', 0, 0, 'unavailable');
-        }
-        var read = readRawText();
-        if (!read.ok) {
-            return outcome('unreadable', 0, 0, 'unreadable');
-        }
-        if (read.text === null) {
-            return outcome('none', 0, 0, '');
-        }
-        var parsed = parseSavedDataset(read.text);
+
+    function interpret(text) {
+        var parsed = parseSavedDataset(text);
         if (!parsed.ok) {
             if (parsed.reason === 'empty') {
                 return outcome('none', 0, 0, '');
@@ -233,6 +237,30 @@ export function restoreSavedDataset() {
             return outcome('partial', normalized.records.length, normalized.skipped, 'partial', normalized.records);
         }
         return outcome('restored', normalized.records.length, 0, 'restored', normalized.records);
+    }
+
+    try {
+        if (probeStorage() === 'unavailable') {
+            return outcome('unavailable', 0, 0, 'unavailable');
+        }
+        var read = readRawText();
+        if (!read.ok) {
+            return outcome('unreadable', 0, 0, 'unreadable');
+        }
+        if (read.text === null) {
+            // 新键无数据时尝试旧键：读出后由调用方写入新键并清理旧键
+            var legacyKeys = Array.isArray(STORAGE_CONFIG.legacyKeys) ? STORAGE_CONFIG.legacyKeys : [];
+            for (var i = 0; i < legacyKeys.length; i++) {
+                var legacyRead = readRawText(legacyKeys[i]);
+                if (legacyRead.ok && legacyRead.text !== null) {
+                    var legacyOutcome = interpret(legacyRead.text);
+                    legacyOutcome.legacyKey = legacyKeys[i];
+                    return legacyOutcome;
+                }
+            }
+            return outcome('none', 0, 0, '');
+        }
+        return interpret(read.text);
     } catch (err) {
         return outcome('unreadable', 0, 0, 'unreadable');
     }

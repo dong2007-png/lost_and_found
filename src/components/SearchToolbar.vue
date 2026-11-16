@@ -33,13 +33,15 @@
       <span class="switch__track" aria-hidden="true"><span class="switch__thumb"></span></span>
       <span class="switch__label">仅看寻找中</span>
     </label>
+
+    <button v-if="hasConditions" type="button" class="link-btn toolbar__reset" @click="resetConditions">重置条件</button>
   </div>
 </template>
 
 <script setup>
 import { useWall } from '../composables/useWall.js';
 
-const { state, setFilter } = useWall();
+const { state, setFilter, resetConditions, hasConditions } = useWall();
 const filters = [
   { value: 'all', label: '全部' },
   { value: 'lost', label: '丢失' },

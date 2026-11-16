@@ -1,5 +1,5 @@
 <template>
-  <section class="publish-section" aria-label="发布信息">
+  <section class="publish-section" id="publish-form-anchor" aria-label="发布信息">
     <div class="publish-area">
       <button
         type="button"
@@ -9,14 +9,18 @@
         @click="toggleForm()"
       >
         <span class="publish-btn__plus" aria-hidden="true">{{ state.formOpen ? '−' : '+' }}</span>
-        {{ state.formOpen ? '收起表单' : '发布信息' }}
+        {{ publishButtonText }}
       </button>
       <p class="publish-area__hint">发布后系统会自动与另一类信息比对</p>
     </div>
 
     <Transition name="form-expand">
       <div v-if="state.formOpen" id="formPanel" class="form-panel">
-        <form class="publish-form" novalidate @submit.prevent="handleSubmit">
+        <form class="publish-form" novalidate @submit.prevent="handleSubmit(false)">
+          <div class="form-head">
+            <h2 class="form-head__title">{{ isEditing ? '编辑信息 #' + editingInfo.seq : '发布新信息' }}</h2>
+            <button v-if="isEditing" type="button" class="link-btn" @click="handleCancel">退出编辑</button>
+          </div>
           <p class="form-note">信息保存在当前浏览器中，清理浏览器数据将同时清除</p>
 
           <fieldset class="field field--type" :class="{ 'is-invalid': errors.type }" aria-describedby="error-type">
@@ -39,6 +43,9 @@
           <div class="field" :class="{ 'is-invalid': errors.location }">
             <label class="field__label" for="fieldLocation">地点 <span class="req" aria-hidden="true">*</span></label>
             <input class="field__control" id="fieldLocation" v-model="form.location" type="text" aria-required="true" aria-describedby="error-location" autocomplete="off" placeholder="如：图书馆三楼自习区">
+            <div class="quick-chips" aria-label="常用地点快捷填入">
+              <button v-for="place in QUICK_LOCATIONS" :key="place" type="button" class="chip" @click="form.location = place">{{ place }}</button>
+            </div>
             <p class="field__error" id="error-location" role="alert">{{ errors.location }}</p>
           </div>
 
@@ -58,11 +65,15 @@
           <div class="field field--wide" :class="{ 'is-invalid': errors.feature }">
             <label class="field__label" for="fieldFeature">特征描述 <span class="optional">选填</span></label>
             <textarea class="field__control" id="fieldFeature" v-model="form.feature" rows="3" aria-describedby="error-feature" placeholder="颜色、品牌、型号、外观痕迹等，越具体越容易匹配"></textarea>
+            <div class="quick-chips" aria-label="常用特征快捷插入">
+              <button v-for="word in QUICK_FEATURES" :key="word" type="button" class="chip" @click="appendFeature(word)">{{ word }}</button>
+            </div>
             <p class="field__error" id="error-feature" role="alert">{{ errors.feature }}</p>
           </div>
 
           <div class="form-actions">
-            <button type="submit" class="btn btn--primary">提交</button>
+            <button type="submit" class="btn btn--primary">{{ isEditing ? '保存修改' : '提交' }}</button>
+            <button v-if="!isEditing" type="button" class="btn btn--ghost" @click="handleSubmit(true)">提交并再发一条</button>
             <button type="button" class="btn btn--ghost" @click="handleCancel">取消</button>
           </div>
         </form>
@@ -72,16 +83,18 @@
 </template>
 
 <script setup>
-import { reactive, ref, nextTick } from 'vue';
+import { reactive, ref, computed, watch, nextTick } from 'vue';
+import { QUICK_LOCATIONS, QUICK_FEATURES } from '../constants.js';
+import { toLocalInputValue } from '../services/info.js';
 import { useWall } from '../composables/useWall.js';
 
-const { state, toggleForm, publish } = useWall();
+const { state, toggleForm, publish, updateInfo, editingInfo, cancelEdit } = useWall();
 
 const emptyForm = () => ({
   type: 'lost',
   name: '',
   location: '',
-  occurredAt: '',
+  occurredAt: toLocalInputValue(),
   feature: '',
   contact: ''
 });
@@ -90,29 +103,80 @@ const form = reactive(emptyForm());
 const errors = reactive({});
 const nameInput = ref(null);
 
+const isEditing = computed(() => editingInfo.value !== null);
+const publishButtonText = computed(() => {
+  if (isEditing.value) {
+    return '编辑信息 #' + editingInfo.value.seq;
+  }
+  return state.formOpen ? '收起表单' : '发布信息';
+});
+
 function clearErrors() {
   Object.keys(errors).forEach((key) => {
     delete errors[key];
   });
 }
 
-function resetForm() {
+function resetForm(keepType) {
+  const type = keepType ? form.type : 'lost';
   Object.assign(form, emptyForm());
+  form.type = type;
   clearErrors();
 }
+
+function appendFeature(word) {
+  const current = form.feature.trim();
+  form.feature = current === '' ? word : current + ' ' + word;
+}
+
+watch(() => state.formOpen, (open) => {
+  if (open && !editingInfo.value) {
+    resetForm();
+  }
+});
+
+watch(editingInfo, (info) => {
+  clearErrors();
+  if (info) {
+    Object.assign(form, {
+      type: info.type,
+      name: info.name,
+      location: info.location,
+      occurredAt: info.occurredAt,
+      feature: info.feature,
+      contact: info.contact
+    });
+  }
+});
 
 function handleCancel() {
   resetForm();
+  cancelEdit();
   toggleForm(false);
 }
 
-function handleSubmit() {
+function handleSubmit(continuePublish) {
   clearErrors();
-  const result = publish({ ...form });
+  const result = isEditing.value
+    ? updateInfo(editingInfo.value.seq, { ...form })
+    : publish({ ...form }, { keepOpen: continuePublish === true });
+
   if (result.ok) {
-    resetForm();
+    if (isEditing.value) {
+      resetForm();
+    } else {
+      resetForm(continuePublish === true);
+      if (continuePublish === true) {
+        nextTick(() => {
+          if (nameInput.value) {
+            nameInput.value.focus();
+          }
+        });
+      }
+    }
     return;
   }
+
   const fieldIds = {
     type: 'typeLost',
     name: 'fieldName',

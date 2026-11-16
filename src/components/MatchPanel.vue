@@ -4,12 +4,18 @@
       <h2 class="section-title">潜在匹配</h2>
       <p class="match-panel__count" aria-live="polite">{{ MATCH_TEXT.countPrefix }}{{ matchResult.total }}{{ MATCH_TEXT.countSuffix }}</p>
     </div>
-    <p class="match-panel__desc">按名称、特征、地点、时间四个维度综合评分，仅展示寻找中的信息</p>
+    <p class="match-panel__desc">按名称、特征、地点、时间综合评分，并叠加品类与颜色负信号，仅展示寻找中的信息</p>
 
     <p v-if="matchResult.total === 0" class="match-empty">{{ MATCH_TEXT.empty }}</p>
 
     <div v-else class="match-list">
-      <article v-for="pair in matchResult.pairs" :key="pair.lostSeq + ':' + pair.foundSeq" class="match-card">
+      <article
+        v-for="pair in matchResult.pairs"
+        :key="pair.lostSeq + ':' + pair.foundSeq"
+        :id="'pair-' + pair.lostSeq + '-' + pair.foundSeq"
+        class="match-card"
+        :class="{ 'is-focused': state.focusedId === 'pair-' + pair.lostSeq + '-' + pair.foundSeq }"
+      >
         <header class="match-card__head">
           <div class="match-score" :class="'match-score--' + pair.level">
             <span class="match-score__value">{{ pair.score }}</span>
@@ -20,7 +26,7 @@
           </div>
           <div class="match-card__reasons">
             <span v-for="reason in pair.reasons" :key="reason" class="reason-chip">{{ reason }}</span>
-            <span v-if="pair.reversed" class="reason-chip reason-chip--warn">{{ MATCH_TEXT.reversedTime }}</span>
+            <span v-for="diff in pair.differences" :key="'diff-' + diff" class="reason-chip reason-chip--warn">{{ diff }}</span>
           </div>
         </header>
 
@@ -33,7 +39,12 @@
         </div>
 
         <div class="match-card__body">
-          <section class="match-side match-side--lost" :class="{ 'is-found': isFound(pair.lostSeq) }">
+          <section
+            class="match-side match-side--lost is-clickable"
+            :class="{ 'is-found': isFound(pair.lostSeq) }"
+            title="点击定位到对应信息卡片"
+            @click="focusOn('info-' + pair.lostSeq)"
+          >
             <div class="match-side__top">
               <span class="badge badge--lost">丢失</span>
               <span v-if="isFound(pair.lostSeq)" class="badge badge--found-check">✓ 已找到</span>
@@ -46,7 +57,12 @@
 
           <div class="match-link">{{ MATCH_TEXT.same }}</div>
 
-          <section class="match-side match-side--found" :class="{ 'is-found': isFound(pair.foundSeq) }">
+          <section
+            class="match-side match-side--found is-clickable"
+            :class="{ 'is-found': isFound(pair.foundSeq) }"
+            title="点击定位到对应信息卡片"
+            @click="focusOn('info-' + pair.foundSeq)"
+          >
             <div class="match-side__top">
               <span class="badge badge--found">招领</span>
               <span v-if="isFound(pair.foundSeq)" class="badge badge--found-check">✓ 已找到</span>
@@ -76,7 +92,7 @@ import { MATCH_TEXT, MATCH_LEVEL_LABEL } from '../constants.js';
 import { displayText, formatTime, normalizeStatus } from '../services/info.js';
 import { useWall } from '../composables/useWall.js';
 
-const { matchResult, infoMap, applyMark } = useWall();
+const { state, matchResult, infoMap, applyMark, focusOn } = useWall();
 
 function infoOf(seq) {
   return infoMap.value.get(seq) || {};

@@ -184,3 +184,11 @@ export function findInfo(infos, seq) {
     }
     return null;
 }
+export function toLocalInputValue(date) {
+    var d = date instanceof Date && !isNaN(date.getTime()) ? date : new Date();
+    var pad = function (n) {
+        return String(n).length < 2 ? '0' + n : String(n);
+    };
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +
+        'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+}

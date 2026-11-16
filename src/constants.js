@@ -51,8 +51,9 @@ export var STATUS_LABEL = {
  * 键名不含版本号，版本只存在于保存数据集的 version 字段。
  */
 export var STORAGE_CONFIG = {
-    key: 'csuLostFound.dataset',
-    probeKey: 'csuLostFound.probe',
+    key: 'campusLostFound.dataset',
+    probeKey: 'campusLostFound.probe',
+    legacyKeys: ['csuLostFound.dataset'],
     version: 1,
     maxTextChars: 4000000
 };
@@ -102,6 +103,39 @@ export var MATCH_RULES = {
     keywordLimit: 3
 };
 
+// 负信号：只做乘性降权，不强制排除，避免误伤真实配对
+export var MATCH_PENALTY = {
+    categoryConflict: 0.75,
+    colorConflict: 0.8,
+    reversedSameDay: 1,
+    reversedNear: 0.6,
+    reversedFar: 0.4,
+    reversedFarDays: 7,
+    timeFarDays: 14
+};
+
+// 品类推断词表：由名称与特征推断，冲突时降权
+export var MATCH_CATEGORY_DICT = {
+    '电子数码': ['耳机', '充电盒', '耳机盒', '手机', '电脑', '平板', '充电器', '数据线', '蓝牙', '无线', '降噪', 'airpods', '充电宝'],
+    '证件卡片': ['学生卡', '校园卡', '身份证', '证件', '饭卡', '学生证', '银行卡', '门卡'],
+    '雨具': ['雨伞', '伞', '雨衣'],
+    '钥匙': ['钥匙', '钥匙扣'],
+    '书籍文具': ['笔记本', '教材', '课本', '笔袋', '书籍'],
+    '服饰': ['外套', '手套', '围巾', '帽子', '衣服'],
+    '水杯': ['水杯', '保温杯', '杯子'],
+    '包袋': ['书包', '背包', '钱包', '挎包', '手提包'],
+    '配饰': ['手表', '眼镜', '挂件', '挂绳']
+};
+
+export var MATCH_COLORS = [
+    '白色', '黑色', '蓝色', '红色', '粉色', '银色', '灰色', '绿色', '黄色', '紫色',
+    '透明', '米色', '棕色', '橙色', '金色', '藏青色', '卡其色'
+];
+
+export var QUICK_LOCATIONS = ['图书馆', '食堂', '教学楼', '宿舍', '体育场', '校门口'];
+
+export var QUICK_FEATURES = ['黑色', '白色', '蓝色', '华为', '苹果', '小米', '带保护套', '有划痕'];
+
 export var MATCH_TEXT = {
     empty: '暂无潜在匹配，系统会在有新信息或状态变更后自动比对',
     same: '可能是同一物品',
@@ -118,6 +152,10 @@ export var MATCH_TEXT = {
     reasonFeature: '特征重合',
     reasonLocation: '地点相同',
     reasonSameDay: '同日发生',
+    reasonCategoryConflict: '品类不同',
+    reasonColorConflict: '颜色不同',
+    reasonLocationDiff: '地点不同',
+    reasonTimeFar: '时间跨度大',
     lostTimePrefix: '丢失时间：',
     foundTimePrefix: '招领时间：',
     markHint: '标记后双方物品状态将同步为已找到，且不可撤销',

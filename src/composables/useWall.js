@@ -5,14 +5,18 @@ import {
     sortBySeqDesc,
     validateForm,
     createInfo,
-    normalizeStatus
+    normalizeStatus,
+    toText
 } from '../services/info.js';
 import { computeMatches, resolveMark, markSeqsFound } from '../services/match.js';
 import {
     buildSavedDataset,
     serializeSavedDataset,
     writeRawText,
-    restoreSavedDataset
+    restoreSavedDataset,
+    parseSavedDataset,
+    normalizeSavedRecords,
+    removeStorageKey
 } from '../services/storage.js';
 import { STORAGE_TEXT, MATCH_NOTICE, ITEM_STATUS } from '../constants.js';
 
@@ -28,10 +32,13 @@ var state = reactive({
     noticeVisible: false,
     markLock: false,
     storageState: 'ok',
-    restored: false
+    restored: false,
+    editingSeq: null,
+    focusedId: ''
 });
 
 var noticeTimer = null;
+var focusTimer = null;
 
 function showNotice(text) {
     if (!text) {
@@ -108,6 +115,12 @@ function noticeTextFor(key, invalidated) {
     return MATCH_NOTICE.marked;
 }
 
+function fingerprint(record) {
+    return [record.type, record.name, record.location, record.occurredAt, record.contact]
+        .map(toText)
+        .join('|');
+}
+
 export function useWall() {
     var matchResult = computed(function () {
         try {
@@ -160,15 +173,88 @@ export function useWall() {
         return { lost: lost, found: found, done: done, matches: matchResult.value.total, total: state.infos.length };
     });
 
+    var matchCountBySeq = computed(function () {
+        var map = new Map();
+        var pairs = matchResult.value.allPairs || [];
+        for (var i = 0; i < pairs.length; i++) {
+            var pair = pairs[i];
+            map.set(pair.lostSeq, (map.get(pair.lostSeq) || 0) + 1);
+            map.set(pair.foundSeq, (map.get(pair.foundSeq) || 0) + 1);
+        }
+        return map;
+    });
+
+    var editingInfo = computed(function () {
+        if (!Number.isInteger(state.editingSeq)) {
+            return null;
+        }
+        return infoMap.value.get(state.editingSeq) || null;
+    });
+
+    var hasConditions = computed(function () {
+        return state.activeFilter !== 'all' || state.searchQuery.trim() !== '' || state.onlySearching;
+    });
+
     function setFilter(filter) {
         state.activeFilter = filter === 'lost' || filter === 'found' ? filter : 'all';
     }
 
-    function toggleForm(force) {
-        state.formOpen = typeof force === 'boolean' ? force : !state.formOpen;
+    function resetConditions() {
+        state.activeFilter = 'all';
+        state.searchQuery = '';
+        state.onlySearching = false;
     }
 
-    function publish(raw) {
+    function toggleForm(force) {
+        state.formOpen = typeof force === 'boolean' ? force : !state.formOpen;
+        if (!state.formOpen) {
+            state.editingSeq = null;
+        }
+    }
+
+    function focusOn(id) {
+        if (!id) {
+            return;
+        }
+        state.focusedId = id;
+        if (focusTimer) {
+            clearTimeout(focusTimer);
+        }
+        setTimeout(function () {
+            var el = typeof document !== 'undefined' ? document.getElementById(id) : null;
+            if (el && typeof el.scrollIntoView === 'function') {
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }, 60);
+        focusTimer = setTimeout(function () {
+            state.focusedId = '';
+        }, 2400);
+    }
+
+    function startEdit(seq) {
+        if (!Number.isInteger(seq)) {
+            return;
+        }
+        state.editingSeq = seq;
+        state.formOpen = true;
+        focusOn('publish-form-anchor');
+    }
+
+    function cancelEdit() {
+        state.editingSeq = null;
+    }
+
+    function locateMatchFor(seq) {
+        var pairs = matchResult.value.pairs;
+        for (var i = 0; i < pairs.length; i++) {
+            if (pairs[i].lostSeq === seq || pairs[i].foundSeq === seq) {
+                focusOn('pair-' + pairs[i].lostSeq + '-' + pairs[i].foundSeq);
+                return;
+            }
+        }
+    }
+
+    function publish(raw, options) {
         if (state.submitLock) {
             return { ok: false, errors: [] };
         }
@@ -182,10 +268,10 @@ export function useWall() {
             state.infos.unshift(info);
             state.seqCounter = info.seq;
             saveCurrentInfos();
-            setFilter('all');
-            state.searchQuery = '';
-            state.onlySearching = false;
-            state.formOpen = false;
+            resetConditions();
+            if (!options || !options.keepOpen) {
+                state.formOpen = false;
+            }
             showNotice('发布成功，已为你自动比对潜在匹配');
             return { ok: true, errors: [] };
         } catch (err) {
@@ -194,6 +280,129 @@ export function useWall() {
         } finally {
             state.submitLock = false;
         }
+    }
+
+    function updateInfo(seq, raw) {
+        if (!Number.isInteger(seq) || state.submitLock) {
+            return { ok: false, errors: [] };
+        }
+        state.submitLock = true;
+        try {
+            var result = validateForm(raw, new Date());
+            if (!result.ok) {
+                return result;
+            }
+            var index = -1;
+            for (var i = 0; i < state.infos.length; i++) {
+                if (state.infos[i] && state.infos[i].seq === seq) {
+                    index = i;
+                    break;
+                }
+            }
+            if (index < 0) {
+                return { ok: false, errors: [] };
+            }
+            var old = state.infos[index];
+            var next = createInfo(raw, new Date(old.createdAt), old.seq);
+            next.status = normalizeStatus(old);
+            var list = state.infos.slice();
+            list[index] = next;
+            state.infos = list;
+            state.editingSeq = null;
+            state.formOpen = false;
+            saveCurrentInfos();
+            showNotice('信息已更新');
+            return { ok: true, errors: [] };
+        } catch (err) {
+            console.error('更新失败', err);
+            return { ok: false, errors: [] };
+        } finally {
+            state.submitLock = false;
+        }
+    }
+
+    function deleteInfo(seq) {
+        if (!Number.isInteger(seq)) {
+            return;
+        }
+        state.infos = state.infos.filter(function (info) {
+            return !info || info.seq !== seq;
+        });
+        if (state.editingSeq === seq) {
+            state.editingSeq = null;
+        }
+        saveCurrentInfos();
+        showNotice('已删除该信息');
+    }
+
+    function clearAll() {
+        state.infos = [];
+        state.seqCounter = 0;
+        state.editingSeq = null;
+        saveCurrentInfos();
+        showNotice('已清空全部信息');
+    }
+
+    function exportData() {
+        return serializeSavedDataset(buildSavedDataset(state.infos, new Date()));
+    }
+
+    function importData(text) {
+        var parsed = parseSavedDataset(text);
+        if (!parsed.ok) {
+            showNotice('导入失败：文件无法解析或版本不兼容');
+            return { ok: false, imported: 0, duplicated: 0, skipped: 0 };
+        }
+        var normalized = normalizeSavedRecords(parsed.dataset.items, Date.parse(parsed.dataset.savedAt), { allowDuplicateSeq: true });
+        var existingPrints = Object.create(null);
+        var usedSeq = Object.create(null);
+        var maxSeq = state.seqCounter;
+        var i;
+        for (i = 0; i < state.infos.length; i++) {
+            var info = state.infos[i];
+            if (!info) {
+                continue;
+            }
+            existingPrints[fingerprint(info)] = true;
+            usedSeq[info.seq] = true;
+            if (info.seq > maxSeq) {
+                maxSeq = info.seq;
+            }
+        }
+        var imported = 0;
+        var duplicated = 0;
+        var added = [];
+        for (i = 0; i < normalized.records.length; i++) {
+            var record = normalized.records[i];
+            var print = fingerprint(record);
+            if (existingPrints[print]) {
+                duplicated += 1;
+                continue;
+            }
+            var seq = record.seq;
+            if (usedSeq[seq]) {
+                maxSeq += 1;
+                seq = maxSeq;
+            }
+            usedSeq[seq] = true;
+            existingPrints[print] = true;
+            var copy = {};
+            for (var key in record) {
+                if (Object.prototype.hasOwnProperty.call(record, key)) {
+                    copy[key] = record[key];
+                }
+            }
+            copy.seq = seq;
+            added.push(copy);
+            imported += 1;
+        }
+        if (imported > 0) {
+            state.infos = added.concat(state.infos);
+            state.seqCounter = maxSeq;
+            saveCurrentInfos();
+        }
+        showNotice('导入完成：新增 ' + imported + ' 条，重复 ' + duplicated + ' 条，无效 ' + normalized.skipped + ' 条');
+        return { ok: true, imported: imported, duplicated: duplicated, skipped: normalized.skipped };
     }
 
     function applyMark(seq, source, opponentSeq) {
@@ -239,6 +448,12 @@ export function useWall() {
             if (outcome.records.length > 0) {
                 state.infos = outcome.records;
                 state.seqCounter = outcome.records[0].seq;
+                if (outcome.legacyKey) {
+                    var saved = saveCurrentInfos();
+                    if (saved.ok) {
+                        removeStorageKey(outcome.legacyKey);
+                    }
+                }
             }
             var notice = storageNoticeFor(outcome);
             if (notice) {
@@ -255,9 +470,22 @@ export function useWall() {
         visibleInfos: visibleInfos,
         matchResult: matchResult,
         infoMap: infoMap,
+        matchCountBySeq: matchCountBySeq,
+        editingInfo: editingInfo,
+        hasConditions: hasConditions,
         setFilter: setFilter,
+        resetConditions: resetConditions,
         toggleForm: toggleForm,
+        startEdit: startEdit,
+        cancelEdit: cancelEdit,
+        focusOn: focusOn,
+        locateMatchFor: locateMatchFor,
         publish: publish,
+        updateInfo: updateInfo,
+        deleteInfo: deleteInfo,
+        clearAll: clearAll,
+        exportData: exportData,
+        importData: importData,
         applyMark: applyMark,
         restore: restore,
         showNotice: showNotice

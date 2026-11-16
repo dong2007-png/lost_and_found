@@ -1194,6 +1194,163 @@ textarea.field__control {
   }
 }
 
+/* ---------- 快捷输入与辅助操作 ---------- */
+.quick-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.chip {
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+  color: var(--ink-muted);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 12px;
+  transition: all 0.2s ease;
+}
+
+.chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.link-btn {
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font-size: 13px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.link-btn:hover {
+  background: var(--accent-soft);
+}
+
+.link-btn--danger {
+  color: var(--lost);
+}
+
+.link-btn--danger:hover {
+  background: var(--lost-soft);
+}
+
+.toolbar__reset {
+  margin-left: auto;
+}
+
+.form-head {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.form-head__title {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.card__tools {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.card__match-badge {
+  display: inline-flex;
+  margin-top: 8px;
+  border: none;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.card__match-badge:hover {
+  transform: translateX(2px);
+}
+
+.confirm-bar {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--lost-soft);
+  color: var(--lost);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font-size: 12px;
+}
+
+.card.is-focused,
+.match-card.is-focused {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.match-card.is-focused {
+  outline-color: var(--accent-2);
+}
+
+.match-side.is-clickable {
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.match-side.is-clickable:hover {
+  border-color: rgba(77, 124, 255, 0.5);
+  background: rgba(77, 124, 255, 0.08);
+}
+
+/* ---------- 数据管理栏 ---------- */
+.data-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: -6px 0 20px;
+  padding: 10px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.data-bar__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.data-bar__file {
+  display: none;
+}
+
+.data-bar__meta {
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.data-bar__confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--lost);
+}
+
 /* ---------- 响应式 ---------- */
 @media (max-width: 1024px) {
   .main-body {

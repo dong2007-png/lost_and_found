@@ -5,6 +5,9 @@ import {
     MATCH_LEVEL_RANK,
     MATCH_SCORE,
     MATCH_TEXT,
+    MATCH_CATEGORY_DICT,
+    MATCH_COLORS,
+    MATCH_PENALTY,
     ITEM_STATUS
 } from '../constants.js';
 import { toText, countChars, parseDateTime, normalizeStatus, findInfo } from './info.js';
@@ -375,7 +378,7 @@ export function timeSimilarity(lostTime, foundTime) {
     } else {
         score = 0.1;
     }
-    return { score: score, reversed: reversed, gapMs: gapMs, sameDay: sameDay };
+    return { score: score, reversed: reversed, gapMs: gapMs, sameDay: sameDay, days: days };
 }
 
 export function gradeMatch(nameKind, overlapCount, sameDay) {
@@ -422,6 +425,72 @@ export function buildReasons(nameKind, featureScore, locationScore, sameDay) {
     return reasons;
 }
 
+// 品类推断：命中词表即归类，未命中返回空串（不参与冲突判定）
+export function detectCategory(info) {
+    var text = normalizeText(toText(info && info.name) + ' ' + toText(info && info.feature));
+    if (text === '') {
+        return '';
+    }
+    var categories = Object.keys(MATCH_CATEGORY_DICT);
+    for (var i = 0; i < categories.length; i++) {
+        var words = MATCH_CATEGORY_DICT[categories[i]];
+        for (var j = 0; j < words.length; j++) {
+            if (text.indexOf(words[j]) >= 0) {
+                return categories[i];
+            }
+        }
+    }
+    return '';
+}
+
+export function extractColors(value) {
+    var text = normalizeText(value);
+    var colors = [];
+    if (text === '') {
+        return colors;
+    }
+    for (var i = 0; i < MATCH_COLORS.length; i++) {
+        if (text.indexOf(MATCH_COLORS[i]) >= 0) {
+            colors.push(MATCH_COLORS[i]);
+        }
+    }
+    return colors;
+}
+
+// 双方都提到颜色且毫无交集 → 强负信号；一方未提颜色不处罚
+export function hasColorConflict(infoA, infoB) {
+    var colorsA = extractColors(toText(infoA && infoA.name) + ' ' + toText(infoA && infoA.feature));
+    var colorsB = extractColors(toText(infoB && infoB.name) + ' ' + toText(infoB && infoB.feature));
+    if (colorsA.length === 0 || colorsB.length === 0) {
+        return false;
+    }
+    for (var i = 0; i < colorsA.length; i++) {
+        if (colorsB.indexOf(colorsA[i]) >= 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+export function buildDifferences(input) {
+    var diffs = [];
+    if (input.categoryConflict) {
+        diffs.push(MATCH_TEXT.reasonCategoryConflict);
+    }
+    if (input.colorConflict) {
+        diffs.push(MATCH_TEXT.reasonColorConflict);
+    }
+    if (input.locationKnown && input.locationScore < 0.35) {
+        diffs.push(MATCH_TEXT.reasonLocationDiff);
+    }
+    if (input.reversed && !input.sameDay) {
+        diffs.push(MATCH_TEXT.reversedTime);
+    } else if (input.days > MATCH_PENALTY.timeFarDays) {
+        diffs.push(MATCH_TEXT.reasonTimeFar);
+    }
+    return diffs;
+}
+
 export function scorePair(lostPrepared, foundPrepared) {
     var nameResult = nameSimilarity(lostPrepared.info.name, foundPrepared.info.name);
     if (nameResult.score <= 0) {
@@ -436,16 +505,41 @@ export function scorePair(lostPrepared, foundPrepared) {
         return null;
     }
 
+    var lostCategory = detectCategory(lostPrepared.info);
+    var foundCategory = detectCategory(foundPrepared.info);
+    var categoryConflict = lostCategory !== '' && foundCategory !== '' && lostCategory !== foundCategory;
+    var colorConflict = hasColorConflict(lostPrepared.info, foundPrepared.info);
+
+    // 负信号只做乘性降权；同日内"捡到早于丢失"属填表估计误差，不降权
+    var penalty = 1;
+    if (categoryConflict) {
+        penalty *= MATCH_PENALTY.categoryConflict;
+    }
+    if (colorConflict) {
+        penalty *= MATCH_PENALTY.colorConflict;
+    }
+    if (time.reversed) {
+        if (time.sameDay) {
+            penalty *= MATCH_PENALTY.reversedSameDay;
+        } else if (time.days > MATCH_PENALTY.reversedFarDays) {
+            penalty *= MATCH_PENALTY.reversedFar;
+        } else {
+            penalty *= MATCH_PENALTY.reversedNear;
+        }
+    }
+
     var weights = MATCH_SCORE.weights;
     var base = weights.name * nameResult.score +
         weights.feature * feature.score +
         weights.location * location +
         weights.time * time.score;
-    var score = Math.round(base * 100 * (time.reversed ? MATCH_SCORE.orderPenalty : 1));
+    var score = Math.round(base * 100 * penalty);
     if (score < MATCH_SCORE.minScore) {
         return null;
     }
     var level = scoreToLevel(score);
+    var locationKnown = toText(lostPrepared.info.location).trim() !== '' &&
+        toText(foundPrepared.info.location).trim() !== '';
     return {
         lostSeq: lostPrepared.seq,
         foundSeq: foundPrepared.seq,
@@ -458,6 +552,19 @@ export function scorePair(lostPrepared, foundPrepared) {
         sameDay: time.sameDay,
         reversed: time.reversed,
         reasons: buildReasons(nameResult.kind, feature.score, location, time.sameDay),
+        differences: buildDifferences({
+            categoryConflict: categoryConflict,
+            colorConflict: colorConflict,
+            locationKnown: locationKnown,
+            locationScore: location,
+            reversed: time.reversed,
+            sameDay: time.sameDay,
+            days: time.days
+        }),
+        lostCategory: lostCategory,
+        foundCategory: foundCategory,
+        categoryConflict: categoryConflict,
+        colorConflict: colorConflict,
         nameKind: nameResult.kind,
         nameScore: nameResult.score,
         featureScore: feature.score,

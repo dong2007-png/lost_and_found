@@ -17,6 +17,7 @@
       <StatsBar />
       <SearchToolbar />
       <PublishForm />
+      <DataBar />
 
       <div class="main-body">
         <InfoList />
@@ -38,6 +39,7 @@ import { useWall } from './composables/useWall.js';
 import StatsBar from './components/StatsBar.vue';
 import SearchToolbar from './components/SearchToolbar.vue';
 import PublishForm from './components/PublishForm.vue';
+import DataBar from './components/DataBar.vue';
 import InfoList from './components/InfoList.vue';
 import MatchPanel from './components/MatchPanel.vue';
 import ToastNotice from './components/ToastNotice.vue';
